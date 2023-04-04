@@ -1,0 +1,1099 @@
+substitutions:
+  project_name: smg-ii-parallel
+  name_inverter0: "Left"
+  name_inverter1: "Right"
+  device_description: "Simple monitor and control a ISolar/EASUN SMG II inverter via RS232"
+  tx_pin_inverter0: GPIO1
+  rx_pin_inverter0: GPIO3
+  tx_pin_inverter1: GPIO17
+  rx_pin_inverter1: GPIO16
+
+esphome:
+  name: ${project_name}
+  comment: ${device_description}
+  project:
+    name: "harbee.smg-ii-parallel"
+    version: 1.0.0
+
+esp32:
+  board: az-delivery-devkit-v4
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+logger:
+
+api:
+  encryption:
+    key: !secret api_password
+
+ota:
+  password: !secret ota_password
+
+uart:
+  - id: uart0
+    baud_rate: 9600
+    tx_pin: ${tx_pin_inverter0}
+    rx_pin: ${rx_pin_inverter0}
+    debug:
+      direction: BOTH
+      dummy_receiver: false
+
+  - id: uart1
+    baud_rate: 9600
+    tx_pin: ${tx_pin_inverter1}
+    rx_pin: ${rx_pin_inverter1}
+    debug:
+      direction: BOTH
+      dummy_receiver: false
+
+modbus:
+  - id: modbus0
+    uart_id: uart0
+    send_wait_time: 200ms
+
+  - id: modbus1
+    uart_id: uart1
+    send_wait_time: 200ms
+
+modbus_controller:
+  - id: inverter0
+    address: 0x01
+    modbus_id: modbus0
+    command_throttle: 200ms
+    update_interval: 10s
+
+  - id: inverter1
+    address: 0x01
+    modbus_id: modbus1
+    command_throttle: 200ms
+    update_interval: 10s
+
+time:
+  - platform: sntp
+
+sensor:
+  - platform: template
+    name: "Summary load precentage"
+    icon: mdi:home-lightning-bolt
+    unit_of_measurement: '%'
+    accuracy_decimals: 1
+    lambda: |-
+      if(id(inverter0_load_precentage).state && id(inverter1_load_precentage).state) {
+        return ((float(id(inverter0_load_precentage).state) + float(id(inverter1_load_precentage).state)) / 2); 
+      } else { 
+        return float(id(inverter0_load_precentage).state);
+      }
+
+  - platform: template
+    name: "Summary output active power"
+    icon: mdi:flash
+    unit_of_measurement: 'W'
+    accuracy_decimals: 0
+    lambda: |-
+      if(id(inverter0_output_active_power).state && id(inverter1_output_active_power).state) {
+        return (float(id(inverter0_output_active_power).state) + float(id(inverter1_output_active_power).state)); 
+      } else {
+        return float(id(inverter0_output_active_power).state); 
+      }
+
+  - platform: template
+    name: "Summary average mains power"
+    icon: mdi:flash
+    unit_of_measurement: 'W'
+    accuracy_decimals: 0
+    lambda: |-
+      if(id(inverter0_average_mains_power).state && id(inverter1_average_mains_power).state) {
+        return (float(id(inverter0_average_mains_power).state) + float(id(inverter1_average_mains_power).state)); 
+      } else {
+        return float(id(inverter0_average_mains_power).state); 
+      }     
+
+  - platform: template
+    name: "Summary PV average power"
+    icon: mdi:flash
+    unit_of_measurement: 'W'
+    accuracy_decimals: 0
+    lambda: |-
+      if(id(inverter0_pv_average_power).state && id(inverter1_pv_average_power).state) {
+        return (float(id(inverter0_pv_average_power).state) + float(id(inverter1_pv_average_power).state)); 
+      } else {
+        return float(id(inverter0_pv_average_power).state); 
+      }    
+
+  - platform: template
+    name: "Summary PV charging average power"
+    icon: mdi:flash
+    unit_of_measurement: 'W'
+    accuracy_decimals: 0
+    lambda: |-
+      if(id(inverter0_pv_charging_average_power).state && id(inverter1_pv_charging_average_power).state) {
+        return (float(id(inverter0_pv_charging_average_power).state) + float(id(inverter1_pv_charging_average_power).state)); 
+      } else {
+        return float(id(inverter0_pv_charging_average_power).state); 
+      } 
+
+  - platform: total_daily_energy
+    name: "${name_inverter0} PV energy today"
+    restore: true
+    icon: mdi:counter
+    power_id: inverter0_pv_average_power
+    filters:
+      - multiply: 0.001
+    unit_of_measurement: kWh
+
+  - platform: total_daily_energy
+    name: "${name_inverter1} PV energy today"
+    restore: true
+    icon: mdi:counter
+    power_id: inverter1_pv_average_power
+    filters:
+      - multiply: 0.001
+    unit_of_measurement: kWh
+
+  - platform: total_daily_energy
+    name: "${name_inverter0} energy today"
+    restore: true
+    icon: mdi:counter
+    power_id: inverter0_pv_charging_average_power
+    filters:
+      - multiply: 0.001
+    unit_of_measurement: kWh
+
+  - platform: total_daily_energy
+    name: "${name_inverter1} energy today"
+    restore: true
+    icon: mdi:counter
+    power_id: inverter1_pv_charging_average_power
+    filters:
+      - multiply: 0.001
+    unit_of_measurement: kWh
+
+  # Fault code                                                    ULong 100 2 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} fault code"
+    address: 100
+    register_type: holding
+    value_type: U_DWORD
+    accuracy_decimals: 0
+
+  # Warning code                                                  ULong 108 2 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} warning code"
+    address: 108
+    register_type: holding
+    value_type: U_DWORD
+    accuracy_decimals: 0
+
+  # Operation Mode                                                UInt  201 1 R 0: Power On
+  #                                                                             1: Standby
+  #                                                                             2: Mains
+  #                                                                             3: Off-Grid
+  #                                                                             4: Bypass
+  #                                                                             5: Charging
+  #                                                                             6: Fault
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} operation mode id"
+    address: 201
+    register_type: holding
+    value_type: U_WORD
+    accuracy_decimals: 0
+
+  # Effective mains voltage                              0.1V     Int   202 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} ac voltage"
+    address: 202
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Mains Frequency                                      0.01Hz   Int   203 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} ac frequency"
+    address: 203
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    state_class: measurement
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # Average mains power 0                                  1W       Int   204 1 R
+  - platform: modbus_controller
+    id: inverter0_average_mains_power
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} average mains power"
+    address: 204
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: inverter1_average_mains_power
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} average mains power"
+    address: 204
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # Effective inverter voltage                           0.1V     Int   205 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} effective inverter voltage"
+    address: 205
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Effective inverter current                           0.1A     Int   206 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} effective inverter current"
+    address: 206
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Inverter frequency                                   0.01Hz   Int   207 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} inverter frequency"
+    address: 207
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    state_class: measurement
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # Average inverter power                               1W       Int   208 1 R Positive numbers indicate inverter output, negative numbers indicate inverter input
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} average inverter power"
+    address: 208
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # Inverter charging power                              1W       Int   209 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} inverter charging power"
+    address: 209
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # Output effective voltage                             0.1V     Int   210 1 R
+  - platform: modbus_controller
+    id: inverter0_output_effective_voltage
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} output effective voltage"
+    address: 210
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    id: inverter1_output_effective_voltage
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} output effective voltage"
+    address: 210
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Output effective Current                             0.1A     Int   211 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} output effective Current"
+    address: 211
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Output frequency                                     0.01Hz   Int   212 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} output frequency"
+    address: 212
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    state_class: measurement
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  # Output active power                                  1W       Int   213 1 R
+  - platform: modbus_controller
+    id: inverter0_output_active_power
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} output active power"
+    address: 213
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    id: inverter1_output_active_power
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} output active power"
+    address: 213
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+
+  # Battery average voltage                              0.1V     Int   215 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} battery average voltage"
+    address: 215
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Battery average Current                              0.1A     Int   216 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} battery average Current"
+    address: 216
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Battery average power                                1W       Int   217 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} battery average power"
+    address: 217
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # PV average voltage                                   0.1V     Int   219 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} pv average voltage"
+    address: 219
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} pv average voltage"
+    address: 219
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # PV average current                                   0.1A     Int   220 1 R
+  - platform: modbus_controller
+    id: inverter0_pv_average_current
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} pv average current"
+    address: 220
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    id: inverter1_pv_average_current
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} pv average current"
+    address: 220
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # PV average power                                     1W       Int   223 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    id: inverter0_pv_average_power
+    name: "${name_inverter0} pv average power"
+    address: 223
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    id: inverter1_pv_average_power
+    name: "${name_inverter1} pv average power"
+    address: 223
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # PV charging average power                            1W       Int   224 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    id: inverter0_pv_charging_average_power
+    name: "${name_inverter0} pv charging average power"
+    address: 224
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    id: inverter1_pv_charging_average_power
+    name: "${name_inverter1} pv charging average power"
+    address: 224
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "W"
+    device_class: power
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # Load percentage                                      1%       Int   225 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    id: inverter0_load_precentage
+    name: "${name_inverter0} load percentage"
+    address: 225
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "%"
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    id: inverter1_load_precentage
+    name: "${name_inverter1} load percentage"
+    address: 225
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "%"
+    state_class: measurement
+    accuracy_decimals: 0
+
+
+  # DCDC Temperature                                     1°C      Int   226 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} dcdc temperature"
+    address: 226
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} dcdc temperature"
+    address: 226
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # Inverter Temperature                                 1°C      Int   227 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} inverter temperature"
+    address: 227
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} inverter temperature"
+    address: 227
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "°C"
+    device_class: temperature
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # Battery state of charge                              1%       UInt  229 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} battery state of charge"
+    address: 229
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    accuracy_decimals: 0
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} battery state of charge"
+    address: 229
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    accuracy_decimals: 0
+
+  # Battery average current                              0.1A     Int   232 1 R Positive number means charging, negative number means discharging
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} battery average current"
+    address: 232
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} battery average current"
+    address: 232
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Inverter charging average current                    0.1A     Int   233 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} inverter charging average current"
+    address: 233
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} inverter charging average current"
+    address: 233
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # PV charging average current                          0.1A     Int   234 1 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} pv charging average current"
+    address: 234
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} pv charging average current"
+    address: 234
+    register_type: holding
+    value_type: S_WORD
+    unit_of_measurement: "A"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Output voltage                                        0.1V    Uint  320 1 R/W
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} output voltage"
+    address: 320
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} output voltage"
+    address: 320
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "V"
+    device_class: voltage
+    accuracy_decimals: 1
+    filters:
+      - multiply: 0.1
+
+  # Output frequency setting                              0.01Hz  Uint  321 1 R/W
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} output frequency setting"
+    address: 321
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} output frequency setting"
+    address: 321
+    register_type: holding
+    value_type: U_WORD
+    unit_of_measurement: "Hz"
+    device_class: frequency
+    accuracy_decimals: 2
+    filters:
+      - multiply: 0.01
+
+select:
+  # Output priority                                               Uint  301 1 R/W 0: Utility-PV-Battery, 1: PV-Utility-Battery, 2: PV-Battery-Utility
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} output priority"
+    use_write_multiple: true
+    address: 301
+    value_type: U_WORD
+    optionsmap:
+      "Utility-PV-Battery (UTI)": 0
+      "PV-Utility-Battery (SOL)": 1
+      "PV-Battery-Utility (SBU)": 2
+      "PV-Utility-Battery (SUB)": 3
+
+  # LCD backlight                                                 Uint  305 1 R/W 0: Timed off, 1: Always on
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} lcd backlight"
+    use_write_multiple: true
+    address: 305
+    value_type: U_WORD
+    optionsmap:
+      "Timed off": 0
+      "Always on": 1
+
+  # Battery charging priority                                     Uint  331 1 R/W 0: Utility priority, 1: PV priority, 2: PV is at the same level as the Utility, 3: Only PV charging is allowed
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} battery charging priority"
+    use_write_multiple: true
+    address: 331
+    value_type: U_WORD
+    optionsmap:
+      "Utility priority": 0
+      "PV priority": 1
+      "PV is at the same level as the Utility": 2
+      "Only PV charging is allowed": 3
+
+switch:
+  # Energy-saving mode                                            Uint  307 1 R/W 0: Energy-saving mode is off, 1: Energy-saving mode is on
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} energy-saving mode"
+    use_write_multiple: true
+    address: 307
+    register_type: holding
+    bitmask: 1
+
+  # Overload automatic restart                                    Uint  308 1 R/W 0: Overload failure will not restart, 1: Automatic restart after overload failure
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} overload automatic restart"
+    use_write_multiple: true
+    address: 308
+    register_type: holding
+    bitmask: 1
+
+  # Over temperature automatic restart                            Uint  309 1 R/W 0: Over temperature failure will not restart, 1: Automatic restart after over-temperature fault
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} over temperature automatic restart"
+    use_write_multiple: true
+    address: 309
+    register_type: holding
+    bitmask: 1
+
+  # Overload transfer to bypass enabled                           Uint  310 1 R/W 0: Disable, 1: Enable
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} overload transfer to bypass enabled"
+    use_write_multiple: true
+    address: 310
+    register_type: holding
+    bitmask: 1
+
+text_sensor:
+  # Fault code                                                    ULong 100 2 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} fault"
+    address: 100
+    register_type: holding
+    register_count: 2
+    response_size: 4
+    raw_encode: HEXBYTES
+    lambda: |-
+      static const uint8_t FAULTS_SIZE = 27;
+      static const char *const FAULTS[FAULTS_SIZE] = {
+          "Over temperature of inverter module",                     // 0000 0000 0000 0000 0000 0000 0000 0001 (1)
+          "Over temperature of DCDC module",                         // 0000 0000 0000 0000 0000 0000 0000 0010 (2)
+          "Battery over voltage",                                    // 0000 0000 0000 0000 0000 0000 0000 0100 (3)
+          "PV module over temperature",                              // 0000 0000 0000 0000 0000 0000 0000 1000 (4)
+          "Output short circuit",                                    // 0000 0000 0000 0000 0000 0000 0001 0000 (5)
+          "Inverter over voltage",                                   // 0000 0000 0000 0000 0000 0000 0010 0000 (6)
+          "Output over load",                                        // 0000 0000 0000 0000 0000 0000 0100 0000 (7)
+          "Bus over voltage",                                        // 0000 0000 0000 0000 0000 0000 1000 0000 (8)
+          "Bus soft start timed out",                                // 0000 0000 0000 0000 0000 0001 0000 0000 (9)
+          "PV over current",                                         // 0000 0000 0000 0000 0000 0010 0000 0000 (10)
+          "PV over voltage",                                         // 0000 0000 0000 0000 0000 0100 0000 0000 (11)
+          "Battery over current",                                    // 0000 0000 0000 0000 0000 1000 0000 0000 (12)
+          "Inverter over current",                                   // 0000 0000 0000 0000 0001 0000 0000 0000 (13)
+          "Bus low voltage",                                         // 0000 0000 0000 0000 0010 0000 0000 0000 (14)
+          "Reserve (Bit 15)",                                        // 0000 0000 0000 0000 0100 0000 0000 0000 (15)
+          "Inverter DC component is too high",                       // 0000 0000 0000 0000 1000 0000 0000 0000 (16)
+          "Reserve (Bit 17)",                                        // 0000 0000 0000 0001 0000 0000 0000 0000 (17)
+          "The zero bias of output current is too large",            // 0000 0000 0000 0010 0000 0000 0000 0000 (18)
+          "The zero bias of inverter current is too large",          // 0000 0000 0000 0100 0000 0000 0000 0000 (19)
+          "The zero bias of battery current is too large",           // 0000 0000 0000 1000 0000 0000 0000 0000 (20)
+          "The zero bias of PV current is too large",                // 0000 0000 0001 0000 0000 0000 0000 0000 (21)
+          "Inverter low voltage",                                    // 0000 0000 0010 0000 0000 0000 0000 0000 (22)
+          "Inverter negative power protection",                      // 0000 0000 0100 0000 0000 0000 0000 0000 (23)
+          "The host in the parallel system is lost",                 // 0000 0000 1000 0000 0000 0000 0000 0000 (24)
+          "Synchronization signal abnormal in the parallel system",  // 0000 0001 0000 0000 0000 0000 0000 0000 (25)
+          "The battery type is incompatible",                        // 0000 0010 0000 0000 0000 0000 0000 0000 (26)
+          "Parallel versions are incompatible",                      // 0000 0100 0000 0000 0000 0000 0000 0000 (27)
+      };
+      std::string values = "";
+
+      uint32_t mask = modbus_controller::dword_from_hex_str(x, 0);
+      if (mask) {
+        for (int i = 0; i < FAULTS_SIZE; i++) {
+          if (mask & (1 << i)) {
+            values.append(FAULTS[i]);
+            values.append(";");
+          }
+        }
+        if (!values.empty()) {
+          values.pop_back();
+        }
+      }
+      return values;
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} fault"
+    address: 100
+    register_type: holding
+    register_count: 2
+    response_size: 4
+    raw_encode: HEXBYTES
+    lambda: |-
+      static const uint8_t FAULTS_SIZE = 27;
+      static const char *const FAULTS[FAULTS_SIZE] = {
+          "Over temperature of inverter module",                     // 0000 0000 0000 0000 0000 0000 0000 0001 (1)
+          "Over temperature of DCDC module",                         // 0000 0000 0000 0000 0000 0000 0000 0010 (2)
+          "Battery over voltage",                                    // 0000 0000 0000 0000 0000 0000 0000 0100 (3)
+          "PV module over temperature",                              // 0000 0000 0000 0000 0000 0000 0000 1000 (4)
+          "Output short circuit",                                    // 0000 0000 0000 0000 0000 0000 0001 0000 (5)
+          "Inverter over voltage",                                   // 0000 0000 0000 0000 0000 0000 0010 0000 (6)
+          "Output over load",                                        // 0000 0000 0000 0000 0000 0000 0100 0000 (7)
+          "Bus over voltage",                                        // 0000 0000 0000 0000 0000 0000 1000 0000 (8)
+          "Bus soft start timed out",                                // 0000 0000 0000 0000 0000 0001 0000 0000 (9)
+          "PV over current",                                         // 0000 0000 0000 0000 0000 0010 0000 0000 (10)
+          "PV over voltage",                                         // 0000 0000 0000 0000 0000 0100 0000 0000 (11)
+          "Battery over current",                                    // 0000 0000 0000 0000 0000 1000 0000 0000 (12)
+          "Inverter over current",                                   // 0000 0000 0000 0000 0001 0000 0000 0000 (13)
+          "Bus low voltage",                                         // 0000 0000 0000 0000 0010 0000 0000 0000 (14)
+          "Reserve (Bit 15)",                                        // 0000 0000 0000 0000 0100 0000 0000 0000 (15)
+          "Inverter DC component is too high",                       // 0000 0000 0000 0000 1000 0000 0000 0000 (16)
+          "Reserve (Bit 17)",                                        // 0000 0000 0000 0001 0000 0000 0000 0000 (17)
+          "The zero bias of output current is too large",            // 0000 0000 0000 0010 0000 0000 0000 0000 (18)
+          "The zero bias of inverter current is too large",          // 0000 0000 0000 0100 0000 0000 0000 0000 (19)
+          "The zero bias of battery current is too large",           // 0000 0000 0000 1000 0000 0000 0000 0000 (20)
+          "The zero bias of PV current is too large",                // 0000 0000 0001 0000 0000 0000 0000 0000 (21)
+          "Inverter low voltage",                                    // 0000 0000 0010 0000 0000 0000 0000 0000 (22)
+          "Inverter negative power protection",                      // 0000 0000 0100 0000 0000 0000 0000 0000 (23)
+          "The host in the parallel system is lost",                 // 0000 0000 1000 0000 0000 0000 0000 0000 (24)
+          "Synchronization signal abnormal in the parallel system",  // 0000 0001 0000 0000 0000 0000 0000 0000 (25)
+          "The battery type is incompatible",                        // 0000 0010 0000 0000 0000 0000 0000 0000 (26)
+          "Parallel versions are incompatible",                      // 0000 0100 0000 0000 0000 0000 0000 0000 (27)
+      };
+      std::string values = "";
+
+      uint32_t mask = modbus_controller::dword_from_hex_str(x, 0);
+      if (mask) {
+        for (int i = 0; i < FAULTS_SIZE; i++) {
+          if (mask & (1 << i)) {
+            values.append(FAULTS[i]);
+            values.append(";");
+          }
+        }
+        if (!values.empty()) {
+          values.pop_back();
+        }
+      }
+      return values;
+
+  # Warning code                                                  ULong 108 2 R
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} fault"
+    address: 100
+    register_type: holding
+    register_count: 2
+    response_size: 4
+    raw_encode: HEXBYTES
+    lambda: |-
+      static const uint8_t WARNINGS_SIZE = 19;
+      static const char *const WARNINGS[WARNINGS_SIZE] = {
+          "Reserve (Bit 0)",                                             // 0000 0000 0000 0000 0000 0000 0000 0001 (1)
+          "Mains waveform abnormal",                                     // 0000 0000 0000 0000 0000 0000 0000 0010 (2)
+          "Reserve (Bit 2)",                                             // 0000 0000 0000 0000 0000 0000 0000 0100 (3)
+          "Mains low voltage",                                           // 0000 0000 0000 0000 0000 0000 0000 1000 (4)
+          "Mains over frequency",                                        // 0000 0000 0000 0000 0000 0000 0001 0000 (5)
+          "Mains low frequency",                                         // 0000 0000 0000 0000 0000 0000 0010 0000 (6)
+          "PV low voltage",                                              // 0000 0000 0000 0000 0000 0000 0100 0000 (7)
+          "Over temperature",                                            // 0000 0000 0000 0000 0000 0000 1000 0000 (8)
+          "Battery low voltage",                                         // 0000 0000 0000 0000 0000 0001 0000 0000 (9)
+          "Battery is not connected",                                    // 0000 0000 0000 0000 0000 0010 0000 0000 (10)
+          "Overload",                                                    // 0000 0000 0000 0000 0000 0100 0000 0000 (11)
+          "Battery Eq charging",                                         // 0000 0000 0000 0000 0000 1000 0000 0000 (12)
+          "Battery undervoltage",                                        // 0000 0000 0000 0000 0001 0000 0000 0000 (13)
+          "Output power derating",                                       // 0000 0000 0000 0000 0010 0000 0000 0000 (14)
+          "Fan blocked",                                                 // 0000 0000 0000 0000 0100 0000 0000 0000 (15)
+          "PV energy is too low to be use",                              // 0000 0000 0000 0000 1000 0000 0000 0000 (16)
+          "Parallel communication interrupted",                          // 0000 0000 0000 0001 0000 0000 0000 0000 (17)
+          "Output mode of Single and Parallel systems inconsistent",     // 0000 0000 0000 0010 0000 0000 0000 0000 (18)
+          "Battery voltage difference of parallel system is too large",  // 0000 0000 0000 0100 0000 0000 0000 0000 (19)
+      };
+      std::string values = "";
+
+      uint32_t mask = modbus_controller::dword_from_hex_str(x, 0);
+      if (mask) {
+        for (int i = 0; i < WARNINGS_SIZE; i++) {
+          if (mask & (1 << i)) {
+            values.append(WARNINGS[i]);
+            values.append(";");
+          }
+        }
+        if (!values.empty()) {
+          values.pop_back();
+        }
+      }
+      return values;
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} fault"
+    address: 100
+    register_type: holding
+    register_count: 2
+    response_size: 4
+    raw_encode: HEXBYTES
+    lambda: |-
+      static const uint8_t WARNINGS_SIZE = 19;
+      static const char *const WARNINGS[WARNINGS_SIZE] = {
+          "Reserve (Bit 0)",                                             // 0000 0000 0000 0000 0000 0000 0000 0001 (1)
+          "Mains waveform abnormal",                                     // 0000 0000 0000 0000 0000 0000 0000 0010 (2)
+          "Reserve (Bit 2)",                                             // 0000 0000 0000 0000 0000 0000 0000 0100 (3)
+          "Mains low voltage",                                           // 0000 0000 0000 0000 0000 0000 0000 1000 (4)
+          "Mains over frequency",                                        // 0000 0000 0000 0000 0000 0000 0001 0000 (5)
+          "Mains low frequency",                                         // 0000 0000 0000 0000 0000 0000 0010 0000 (6)
+          "PV low voltage",                                              // 0000 0000 0000 0000 0000 0000 0100 0000 (7)
+          "Over temperature",                                            // 0000 0000 0000 0000 0000 0000 1000 0000 (8)
+          "Battery low voltage",                                         // 0000 0000 0000 0000 0000 0001 0000 0000 (9)
+          "Battery is not connected",                                    // 0000 0000 0000 0000 0000 0010 0000 0000 (10)
+          "Overload",                                                    // 0000 0000 0000 0000 0000 0100 0000 0000 (11)
+          "Battery Eq charging",                                         // 0000 0000 0000 0000 0000 1000 0000 0000 (12)
+          "Battery undervoltage",                                        // 0000 0000 0000 0000 0001 0000 0000 0000 (13)
+          "Output power derating",                                       // 0000 0000 0000 0000 0010 0000 0000 0000 (14)
+          "Fan blocked",                                                 // 0000 0000 0000 0000 0100 0000 0000 0000 (15)
+          "PV energy is too low to be use",                              // 0000 0000 0000 0000 1000 0000 0000 0000 (16)
+          "Parallel communication interrupted",                          // 0000 0000 0000 0001 0000 0000 0000 0000 (17)
+          "Output mode of Single and Parallel systems inconsistent",     // 0000 0000 0000 0010 0000 0000 0000 0000 (18)
+          "Battery voltage difference of parallel system is too large",  // 0000 0000 0000 0100 0000 0000 0000 0000 (19)
+      };
+      std::string values = "";
+
+      uint32_t mask = modbus_controller::dword_from_hex_str(x, 0);
+      if (mask) {
+        for (int i = 0; i < WARNINGS_SIZE; i++) {
+          if (mask & (1 << i)) {
+            values.append(WARNINGS[i]);
+            values.append(";");
+          }
+        }
+        if (!values.empty()) {
+          values.pop_back();
+        }
+      }
+      return values;
+
+  # Operation Mode                                                UInt  201 1 R 0: Power On, 1: Standby, 2: Mains, 3: Off-Grid, 4: Bypass, 5: Charging, 6: Fault
+  - platform: modbus_controller
+    modbus_controller_id: inverter0
+    name: "${name_inverter0} operation mode"
+    address: 201
+    register_type: holding
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = modbus_controller::word_from_hex_str(x, 0);
+      switch (value) {
+        case 0: return std::string("Power On");
+        case 1: return std::string("Standby");
+        case 2: return std::string("Mains");
+        case 3: return std::string("Off-Grid");
+        case 4: return std::string("Bypass");
+        case 5: return std::string("Charging");
+        case 6: return std::string("Fault");
+      }
+      return std::string("Unknown");
+
+  - platform: modbus_controller
+    modbus_controller_id: inverter1
+    name: "${name_inverter1} operation mode"
+    address: 201
+    register_type: holding
+    raw_encode: HEXBYTES
+    lambda: |-
+      uint16_t value = modbus_controller::word_from_hex_str(x, 0);
+      switch (value) {
+        case 0: return std::string("Power On");
+        case 1: return std::string("Standby");
+        case 2: return std::string("Mains");
+        case 3: return std::string("Off-Grid");
+        case 4: return std::string("Bypass");
+        case 5: return std::string("Charging");
+        case 6: return std::string("Fault");
+      }
+      return std::string("Unknown");
